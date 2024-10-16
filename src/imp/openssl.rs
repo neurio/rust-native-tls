@@ -10,7 +10,7 @@ use self::openssl::ssl::{
     self, MidHandshakeSslStream, SslAcceptor, SslConnector, SslContextBuilder, SslMethod,
     SslVerifyMode,
 };
-use self::openssl::x509::{store::X509StoreBuilder, X509VerifyResult, X509};
+use self::openssl::x509::{store::X509StoreBuilder, X509StoreContextRef, X509VerifyResult, X509};
 use std::error;
 use std::fmt;
 use std::io;
@@ -270,6 +270,28 @@ pub struct TlsConnector {
     accept_invalid_certs: bool,
 }
 
+// Custom verify callback to support IEEE2030.5 requirements
+pub fn verify_callback(preverify_ok: bool, x509_ctx: &mut X509StoreContextRef) -> bool {
+    if !preverify_ok {
+        return preverify_ok;
+    }
+
+    let ok = match x509_ctx.current_cert() {
+        Some(x509) => {
+            debug!("verify_callback cert {:?} nc={:?} pm={:?} {:?}", x509.not_before(), x509.name_constraints().is_none(), x509.policy_mappings().is_none(), x509.issuer_name());
+            x509.name_constraints().is_none() && x509.policy_mappings().is_none()
+        },
+        _ => true,
+    };
+    debug!("verify_callback ok={:?}", ok);
+
+    if !ok {
+        x509_ctx.set_error(X509VerifyResult::APPLICATION_VERIFICATION);
+    }
+
+    ok
+}
+
 impl TlsConnector {
     pub fn new(builder: &TlsConnectorBuilder) -> Result<TlsConnector, Error> {
         init_trust();
@@ -340,6 +362,7 @@ impl TlsConnector {
         if self.accept_invalid_certs {
             ssl.set_verify(SslVerifyMode::NONE);
         }
+        ssl.set_verify_callback(SslVerifyMode::PEER, verify_callback);
 
         let s = ssl.connect(domain, stream)?;
         Ok(TlsStream(s))
