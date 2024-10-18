@@ -36,3 +36,6 @@ openssl-probe = "0.1"
 [dev-dependencies]
 tempfile = "3.0"
 test-cert-gen = "0.9"
+
+[lints.rust]
+unexpected_cfgs = {level = "warn", check-cfg = ['cfg(have_min_max_version)']}
